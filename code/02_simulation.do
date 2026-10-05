@@ -11,7 +11,7 @@ set more off
 version 17
 
 *--- SET THIS TO YOUR STUDENT NUMBER -------------------------
-local studentid 000000000
+local studentid 1009412244
 *-------------------------------------------------------------
 set seed `studentid'
 set obs 5000

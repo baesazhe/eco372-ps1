@@ -1,7 +1,7 @@
 # ECO372H5F — Problem Set 1
 
-**Your name:** [Raunak Boparai]
-**Student number:** [1009412244]  ← also set this as the seed in `code/02_simulation.do`
+**Your name:** Raunak Boparai
+**Student number:** 1009412244  ← also set this as the seed in `code/02_simulation.do`
 
 ## What this repository does
 Running one file rebuilds everything — cleaned data, every estimate, the table, and the figure — from the raw files. No number in your memo is ever typed by hand.

@@ -1,0 +1,887 @@
+------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  \\tsclient\Drives\eco372-ps1\output/ps1_log.txt
+  log type:  text
+ opened on:   6 Oct 2026, 03:53:21
+
+. 
+. do "code/01_build.do"          // raw -> clean analysis datasets
+
+. *==============================================================
+. * ECO372H5F -- Problem Set 1
+. * 01_build.do : turn the two raw files into clean analysis datasets
+. *
+. * Goal: from data/raw/, produce
+. *   data/nsw_experiment.dta       (185 trained + 260 experimental controls)
+. *   data/nsw_observational.dta    (the 185 trained + the PSID comparison gro
+> up)
+. *
+. * The experimental file is tidy. The PSID file is NOT -- part of the
+. * job is cleaning it. Fill in the TODOs. Nothing here should require
+. * you to type a data value by hand.
+. *==============================================================
+. clear all
+
+. set more off
+
+. version 15.1
+
+. 
+. *--------------------------------------------------------------
+. * 1. Experimental sample (already tidy)
+. *--------------------------------------------------------------
+. import delimited "data/raw/nsw_experimental.csv", clear varnames(1) case(pre
+> serve)
+(11 vars, 445 obs)
+
+. tempfile experimental
+
+. save `experimental'
+file C:\Users\local_bopara57\Temp\ST_30e0_000001.tmp saved
+
+. 
+. *--------------------------------------------------------------
+. * 2. PSID comparison group -- clean it
+. *    Open data/raw/psid_comparison_raw.csv first and look at it.
+. *    You will need to deal with, at least:
+. *      - a column that is not data                (TODO: drop it)
+. *      - an id with stray spaces / mixed case      (TODO: tidy it)
+. *      - columns with non-standard names           (TODO: rename to match th
+> e experimental file)
+. *      - earnings stored as text like "$12,345.67" (TODO: strip $ and , then
+>  destring)
+. *      - some exact duplicate rows                 (TODO: remove them)
+. *      - no treat column                           (TODO: everyone here is a
+>  control)
+. *--------------------------------------------------------------
+. import delimited "data/raw/psid_comparison_raw.csv", clear varnames(1) ///
+>     case(preserve) stringcols(_all)
+(11 vars, 2,493 obs)
+
+. 
+. drop region_note
+
+. 
+. replace subjid = lower(strtrim(subjid))
+(2,493 real changes made)
+
+. 
+. rename subjid id
+
+. rename ed education
+
+. rename blk black
+
+. rename hisp hispanic
+
+. rename marr married
+
+. rename nodeg nodegree
+
+. rename earn74 re74
+
+. rename earn75 re75
+
+. rename earn78 re78
+
+. 
+. destring age education black hispanic married nodegree, replace
+age: all characters numeric; replaced as byte
+education: all characters numeric; replaced as byte
+black: all characters numeric; replaced as byte
+hispanic: all characters numeric; replaced as byte
+married: all characters numeric; replaced as byte
+nodegree: all characters numeric; replaced as byte
+
+. destring re74 re75 re78, replace ignore("$,")
+re74: characters $ , removed; replaced as double
+re75: characters $ , removed; replaced as double
+re78: characters $ , removed; replaced as double
+
+. 
+. duplicates drop
+
+Duplicates in terms of all variables
+
+(3 observations deleted)
+
+. 
+. generate treat = 0
+
+. 
+. tempfile psid
+
+. save `psid'
+file C:\Users\local_bopara57\Temp\ST_30e0_000002.tmp saved
+
+. 
+. *--------------------------------------------------------------
+. * 3. Build the two analysis files
+. *--------------------------------------------------------------
+. 
+. use `experimental', clear
+
+. save "data/nsw_experiment.dta", replace
+file data/nsw_experiment.dta saved
+
+. 
+. keep if treat==1
+(260 observations deleted)
+
+. append using `psid'
+(note: variable id was str4, now str13 to accommodate using data's values)
+(note: variable re74 was float, now double to accommodate using data's
+       values)
+(note: variable re75 was float, now double to accommodate using data's
+       values)
+(note: variable re78 was float, now double to accommodate using data's
+       values)
+(note: variable treat was byte, now float to accommodate using data's
+       values)
+
+. save "data/nsw_observational.dta", replace
+file data/nsw_observational.dta saved
+
+. 
+. *--------------------------------------------------------------
+. * 4. Derived variables (do this for BOTH files)
+. *    u74 = 1 if 1974 earnings are zero; u75 likewise; agesq = age^2
+. *--------------------------------------------------------------
+. 
+. use "data/nsw_experiment.dta", clear
+
+. 
+. generate u74 = (re74==0)
+
+. generate u75 = (re75==0)
+
+. generate agesq = age^2
+
+. 
+. save "data/nsw_experiment.dta", replace
+file data/nsw_experiment.dta saved
+
+. 
+. 
+. use "data/nsw_observational.dta", clear
+
+. 
+. generate u74 = (re74==0)
+
+. generate u75 = (re75==0)
+
+. generate agesq = age^2
+
+. 
+. save "data/nsw_observational.dta", replace
+file data/nsw_observational.dta saved
+
+. 
+. di as result "01_build.do complete."
+01_build.do complete.
+
+. 
+end of do-file
+
+. do "code/02_simulation.do"     // Part 1: simulation
+
+. *==============================================================
+. * ECO372H5F -- Problem Set 1
+. * 02_simulation.do : Part 1 -- selection, OVB, and randomization
+. *
+. * You build the data, so you KNOW the true treatment effect.
+. * The DGP below is given -- do not change it (except your seed).
+. * Your job is the estimation and the interpretation in the TODOs.
+. *==============================================================
+. clear all
+
+. set more off
+
+. version 15.1
+
+. 
+. *--- SET THIS TO YOUR STUDENT NUMBER -------------------------
+. local studentid 1009412244
+
+. *-------------------------------------------------------------
+. set seed `studentid'
+
+. set obs 5000
+number of observations (_N) was 0, now 5,000
+
+. 
+. *--------------------------------------------------------------
+. * The data-generating process (GIVEN -- do not change)
+. *--------------------------------------------------------------
+. gen M  = rnormal(0,1)               // 'motivation': unobserved in the real 
+> world
+
+. gen e  = rnormal(0,2000)
+
+. gen Y0 = 5000 + 2000*M + e          // untreated potential outcome
+
+. 
+. gen tau_c = 1500                    // constant treatment effect
+
+. gen Y1_c  = Y0 + tau_c
+
+. gen tau_h = 1500 + 1200*M           // heterogeneous treatment effect
+
+. gen Y1_h  = Y0 + tau_h
+
+. 
+. gen Dstar = -1.2*M + rnormal(0,1)   // the disadvantaged (low M) select into
+>  training
+
+. gen D     = (Dstar > 0.5)
+
+. 
+. gen Yobs_c = D*Y1_c + (1-D)*Y0      // what you observe (constant-effect wor
+> ld)
+
+. gen Yobs_h = D*Y1_h + (1-D)*Y0      // what you observe (heterogeneous world
+> )
+
+. 
+. *--------------------------------------------------------------
+. * Q1. The truth. Report the true ATE (constant), and the ATE and
+. *     ATT (heterogeneous). Why do ATE and ATT differ here?
+. *--------------------------------------------------------------
+. summarize tau_c
+
+    Variable |        Obs        Mean    Std. Dev.       Min        Max
+-------------+---------------------------------------------------------
+       tau_c |      5,000        1500           0       1500       1500
+
+. summarize tau_h
+
+    Variable |        Obs        Mean    Std. Dev.       Min        Max
+-------------+---------------------------------------------------------
+       tau_h |      5,000    1521.052    1192.179  -2494.283   6407.526
+
+. summarize tau_h if D==1
+
+    Variable |        Obs        Mean    Std. Dev.       Min        Max
+-------------+---------------------------------------------------------
+       tau_h |      1,871     607.496    917.5917  -2494.283   3213.344
+
+. 
+. * The ATE and ATT are different because the training group is not random
+. * People with lower M are more likely to train, and they also get smaller ef
+> fects
+. 
+. *--------------------------------------------------------------
+. * Q2. Naive observational estimate (constant world). Regress Yobs_c on D.
+. *     Is it above or below 1500? Explain the SIGN using the DGP.
+. *--------------------------------------------------------------
+. 
+. regress Yobs_c D
+
+      Source |       SS           df       MS      Number of obs   =     5,000
+-------------+----------------------------------   F(1, 4998)      =    163.71
+       Model |  1.0425e+09         1  1.0425e+09   Prob > F        =    0.0000
+    Residual |  3.1828e+10     4,998  6368145.88   R-squared       =    0.0317
+-------------+----------------------------------   Adj R-squared   =    0.0315
+       Total |  3.2871e+10     4,999  6575415.16   Root MSE        =    2523.5
+
+------------------------------------------------------------------------------
+      Yobs_c |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+           D |  -943.5933   73.74827   -12.79   0.000    -1088.172   -799.0144
+       _cons |   5965.072   45.11321   132.22   0.000      5876.63    6053.514
+------------------------------------------------------------------------------
+
+. 
+. * The estimate is below 1500 because people with lower M are more likely to 
+> enter training
+. * M also increases earnings, so the training group would have lower earnings
+>  even without the training
+. 
+. *--------------------------------------------------------------
+. * Q3. The OVB identity. Run the short, long, and auxiliary regressions,
+. *     store a1, b1, b2, d1, and show a1 = b1 + b2*d1 by hand.
+. *     Which term is "where selection lives"? Why does controlling for M work
+>  here?
+. *--------------------------------------------------------------
+. 
+. regress Yobs_c D
+
+      Source |       SS           df       MS      Number of obs   =     5,000
+-------------+----------------------------------   F(1, 4998)      =    163.71
+       Model |  1.0425e+09         1  1.0425e+09   Prob > F        =    0.0000
+    Residual |  3.1828e+10     4,998  6368145.88   R-squared       =    0.0317
+-------------+----------------------------------   Adj R-squared   =    0.0315
+       Total |  3.2871e+10     4,999  6575415.16   Root MSE        =    2523.5
+
+------------------------------------------------------------------------------
+      Yobs_c |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+           D |  -943.5933   73.74827   -12.79   0.000    -1088.172   -799.0144
+       _cons |   5965.072   45.11321   132.22   0.000      5876.63    6053.514
+------------------------------------------------------------------------------
+
+. scalar a1 = _b[D]
+
+. 
+. regress Yobs_c D M
+
+      Source |       SS           df       MS      Number of obs   =     5,000
+-------------+----------------------------------   F(2, 4997)      =   1619.89
+       Model |  1.2929e+10         2  6.4645e+09   Prob > F        =    0.0000
+    Residual |  1.9942e+10     4,997  3990695.96   R-squared       =    0.3933
+-------------+----------------------------------   Adj R-squared   =    0.3931
+       Total |  3.2871e+10     4,999  6575415.16   Root MSE        =    1997.7
+
+------------------------------------------------------------------------------
+      Yobs_c |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+           D |   1400.555   72.47882    19.32   0.000     1258.465    1542.645
+           M |   1926.933   35.30727    54.58   0.000     1857.715     1996.15
+       _cons |   5054.086   39.42099   128.21   0.000     4976.804    5131.369
+------------------------------------------------------------------------------
+
+. scalar b1 = _b[D]
+
+. scalar b2 = _b[M]
+
+. 
+. regress M D
+
+      Source |       SS           df       MS      Number of obs   =     5,000
+-------------+----------------------------------   F(1, 4998)      =   2705.34
+       Model |  1732.79198         1  1732.79198   Prob > F        =    0.0000
+    Residual |  3201.25556     4,998  .640507315   R-squared       =    0.3512
+-------------+----------------------------------   Adj R-squared   =    0.3511
+       Total |  4934.04754     4,999  .987006909   Root MSE        =    .80032
+
+------------------------------------------------------------------------------
+           M |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+           D |  -1.216518   .0233888   -52.01   0.000     -1.26237   -1.170666
+       _cons |   .4727647   .0143074    33.04   0.000      .444716    .5008134
+------------------------------------------------------------------------------
+
+. scalar d1 = _b[D]
+
+. 
+. display a1
+-943.59334
+
+. display b1 + b2*d1
+-943.59334
+
+. 
+. * d1 is the selection part
+. * It is negative because people with lower M are more likely to enter traini
+> ng
+. * Controlling for M works here because we can measure M in the simulation
+. * In real data, something like motivation may be hard to measure or observe
+. 
+. *--------------------------------------------------------------
+. * Q4. Randomize (Drand = runiform() < 0.5), form Yrand_c, and estimate.
+. *     Why does the same difference-in-means now recover 1500?
+. *--------------------------------------------------------------
+. 
+. gen Drand = (runiform() < 0.5)
+
+. gen Yrand_c = Drand*Y1_c + (1-Drand)*Y0
+
+. 
+. regress Yrand_c Drand
+
+      Source |       SS           df       MS      Number of obs   =     5,000
+-------------+----------------------------------   F(1, 4998)      =    456.02
+       Model |  3.5381e+09         1  3.5381e+09   Prob > F        =    0.0000
+    Residual |  3.8778e+10     4,998  7758648.34   R-squared       =    0.0836
+-------------+----------------------------------   Adj R-squared   =    0.0834
+       Total |  4.2316e+10     4,999  8464854.09   Root MSE        =    2785.4
+
+------------------------------------------------------------------------------
+     Yrand_c |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       Drand |   1682.722   78.79914    21.35   0.000     1528.241    1837.203
+       _cons |   4957.528    56.2628    88.11   0.000     4847.228    5067.827
+------------------------------------------------------------------------------
+
+. 
+. * Since training is random, the two groups should be similar before training
+. * The estimate is now much closer to 1500 because the selection problem is r
+> emoved
+. 
+. *--------------------------------------------------------------
+. * Q5. Heterogeneous world: estimate the experimental effect on Yrand_h.
+. *     Which does it match -- the ATE or the ATT? What does that tell you
+. *     about what an experiment estimates?
+. *--------------------------------------------------------------
+. 
+. gen Yrand_h = Drand*Y1_h + (1-Drand)*Y0
+
+. 
+. regress Yrand_h Drand
+
+      Source |       SS           df       MS      Number of obs   =     5,000
+-------------+----------------------------------   F(1, 4998)      =    338.78
+       Model |  3.6614e+09         1  3.6614e+09   Prob > F        =    0.0000
+    Residual |  5.4017e+10     4,998  10807724.4   R-squared       =    0.0635
+-------------+----------------------------------   Adj R-squared   =    0.0633
+       Total |  5.7678e+10     4,999  11537995.2   Root MSE        =    3287.5
+
+------------------------------------------------------------------------------
+     Yrand_h |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       Drand |   1711.803    93.0027    18.41   0.000     1529.477    1894.129
+       _cons |   4957.528   66.40419    74.66   0.000     4827.346    5087.709
+------------------------------------------------------------------------------
+
+. 
+. * The estimate is much closer to the ATE than the ATT
+. * Since training is random, people are not selected into training based on M
+. * This means the experiment estimates the average treatment effect
+. 
+. *--------------------------------------------------------------
+. * Q6. Bad control. Generate Z = Drand + M + rnormal(0,1) -- a variable
+. *     measured AFTER training. Add it to your randomized regression.
+. *     What happens, and why is "add more controls" the wrong instinct?
+. *--------------------------------------------------------------
+. 
+. gen Z = Drand + M + rnormal(0,1)
+
+. 
+. regress Yrand_c Drand Z
+
+      Source |       SS           df       MS      Number of obs   =     5,000
+-------------+----------------------------------   F(2, 4997)      =   1091.07
+       Model |  1.2862e+10         2  6.4311e+09   Prob > F        =    0.0000
+    Residual |  2.9454e+10     4,997  5894272.62   R-squared       =    0.3040
+-------------+----------------------------------   Adj R-squared   =    0.3037
+       Total |  4.2316e+10     4,999  8464854.09   Root MSE        =    2427.8
+
+------------------------------------------------------------------------------
+     Yrand_c |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       Drand |   665.8495   73.28643     9.09   0.000     522.1759    809.5231
+           Z |   961.3534   24.17108    39.77   0.000     913.9675    1008.739
+       _cons |   4970.411   49.04028   101.35   0.000     4874.271    5066.551
+------------------------------------------------------------------------------
+
+. 
+. * The estimate changes a lot after adding Z
+. * Z is measured after training and is partly affected by Drand
+. * Controlling for Z takes away part of what training changes
+. * This shows that adding more controls is not always better
+. 
+. di as result "02_simulation.do complete."
+02_simulation.do complete.
+
+. 
+end of do-file
+
+. do "code/03_analysis.do"       // Part 2: experiment vs OLS
+
+. *==============================================================
+. * ECO372H5F -- Problem Set 1
+. * 03_analysis.do : Part 2 -- the experiment and its OLS shadow
+. *
+. * Uses data/nsw_experiment.dta and data/nsw_observational.dta
+. * (built by 01_build.do). Fill in the TODOs.
+. *==============================================================
+. 
+. clear all
+
+. set more off
+
+. version 15.1
+
+. 
+. * esttab writes your clean table (one-time install; safe to re-run)
+. capture which esttab
+
+. if _rc ssc install estout, replace
+
+. 
+. local ctrls age agesq education black hispanic married nodegree re74 re75
+
+. 
+. *--------------------------------------------------------------
+. * Q7. Balance. In the EXPERIMENT, compare trained vs controls on the
+. *     pre-treatment covariates. Are the groups alike? Why does that matter?
+. *--------------------------------------------------------------
+. 
+. use "data/nsw_experiment.dta", clear
+
+. 
+. estpost ttest age education black hispanic married nodegree re74 re75, by(tr
+> eat)
+
+             |      e(b)   e(count)      e(se)       e(t)    e(df_t) 
+-------------+-------------------------------------------------------
+         age | -.7623701        445   .6827511  -1.116615        443 
+   education | -.2574844        445   .1721353  -1.495826        443 
+       black | -.0163202        445   .0358862   -.454776        443 
+    hispanic |  .0482328        445   .0271632   1.775669        443 
+     married |  -.035343        445   .0360484  -.9804319        443 
+    nodegree |  .1265073        445   .0393452   3.215317        443 
+        re74 |  11.45296        445    516.478   .0221751        443 
+        re75 | -265.1463        445   303.1555  -.8746214        443 
+
+             |    e(p_l)       e(p)     e(p_u)     e(N_1)    e(mu_1) 
+-------------+-------------------------------------------------------
+         age |  .1323821   .2647643   .8676179        260   25.05385 
+   education |  .0677056   .1354112   .9322944        260   10.08846 
+       black |  .3247466   .6494932   .6752534        260   .8269231 
+    hispanic |  .9617631   .0764739   .0382369        260   .1076923 
+     married |  .1637041   .3274081   .8362959        260   .1538462 
+    nodegree |  .9993008   .0013984   .0006992        260   .8346154 
+        re74 |  .5088409   .9823183   .4911591        260   2107.027 
+        re75 |  .1911269   .3822538   .8088731        260   1266.909 
+
+             |    e(N_2)    e(mu_2) 
+-------------+----------------------
+         age |       185   25.81622 
+   education |       185   10.34595 
+       black |       185   .8432432 
+    hispanic |       185   .0594595 
+     married |       185   .1891892 
+    nodegree |       185   .7081081 
+        re74 |       185   2095.574 
+        re75 |       185   1532.055 
+
+. 
+. esttab ., cells("mu_1 mu_2 b p")
+
+----------------------------------------------------------------
+                      (1)                                       
+                                                                
+                     mu_1         mu_2            b            p
+----------------------------------------------------------------
+age              25.05385     25.81622    -.7623701     .2647643
+education        10.08846     10.34595    -.2574844     .1354112
+black            .8269231     .8432432    -.0163202     .6494932
+hispanic         .1076923     .0594595     .0482328     .0764739
+married          .1538462     .1891892     -.035343     .3274081
+nodegree         .8346154     .7081081     .1265073     .0013984
+re74             2107.027     2095.574     11.45296     .9823183
+re75             1266.909     1532.055    -265.1463     .3822538
+----------------------------------------------------------------
+N                     445                                       
+----------------------------------------------------------------
+
+. 
+. * The two groups are mostly similar before training
+. * A few differences show up, but overall the groups look fairly similar
+. * This is what we would expect from random assignment
+. 
+. *--------------------------------------------------------------
+. * Q8. Experimental benchmark. Estimate the effect on re78, with and
+. *     without controls. This is your credible number.
+. *--------------------------------------------------------------
+. 
+. eststo clear
+
+. 
+. eststo exp_raw: regress re78 treat
+
+      Source |       SS           df       MS      Number of obs   =       445
+-------------+----------------------------------   F(1, 443)       =      8.04
+       Model |   348013183         1   348013183   Prob > F        =    0.0048
+    Residual |  1.9178e+10       443  43290369.3   R-squared       =    0.0178
+-------------+----------------------------------   Adj R-squared   =    0.0156
+       Total |  1.9526e+10       444  43976681.9   Root MSE        =    6579.5
+
+------------------------------------------------------------------------------
+        re78 |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       treat |   1794.342   632.8534     2.84   0.005     550.5745     3038.11
+       _cons |   4554.801   408.0459    11.16   0.000     3752.855    5356.747
+------------------------------------------------------------------------------
+
+. 
+. eststo exp_ctrl: regress re78 treat `ctrls'
+
+      Source |       SS           df       MS      Number of obs   =       445
+-------------+----------------------------------   F(10, 434)      =      2.53
+       Model |  1.0749e+09        10   107492486   Prob > F        =    0.0057
+    Residual |  1.8451e+10       434  42513184.1   R-squared       =    0.0551
+-------------+----------------------------------   Adj R-squared   =    0.0333
+       Total |  1.9526e+10       444  43976681.9   Root MSE        =    6520.2
+
+------------------------------------------------------------------------------
+        re78 |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       treat |   1675.862   639.3441     2.62   0.009     419.2667    2932.458
+         age |   141.7306   274.4174     0.52   0.606    -397.6218     681.083
+       agesq |  -1.435322   4.495413    -0.32   0.750    -10.27081    7.400166
+   education |   385.0161   230.1116     1.67   0.095    -67.25567    837.2879
+       black |  -2155.641   1170.308    -1.84   0.066    -4455.817    144.5339
+    hispanic |   187.2627   1552.764     0.12   0.904     -2864.61    3239.136
+     married |  -184.8944   892.4303    -0.21   0.836    -1938.917    1569.128
+    nodegree |  -55.54479   1006.542    -0.06   0.956    -2033.849    1922.759
+        re74 |   .0814752   .0775297     1.05   0.294    -.0709052    .2338557
+        re75 |   .0508152   .1357532     0.37   0.708    -.2160002    .3176306
+       _cons |  -307.0121   4807.584    -0.06   0.949    -9756.054     9142.03
+------------------------------------------------------------------------------
+
+. 
+. * The estimate changes slightly after adding controls
+. * This is sensible because treatment was random, so the groups were already 
+> similar before training
+. 
+. *--------------------------------------------------------------
+. * Q9. The observational trap. In data/nsw_observational.dta, estimate the
+. *     effect naively, then adding controls. Compare to the experiment.
+. *--------------------------------------------------------------
+. 
+. use "data/nsw_observational.dta", clear
+
+. 
+. eststo obs_raw: regress re78 treat
+
+      Source |       SS           df       MS      Number of obs   =     2,675
+-------------+----------------------------------   F(1, 2673)      =    173.41
+       Model |  3.9811e+10         1  3.9811e+10   Prob > F        =    0.0000
+    Residual |  6.1365e+11     2,673   229573190   R-squared       =    0.0609
+-------------+----------------------------------   Adj R-squared   =    0.0606
+       Total |  6.5346e+11     2,674   244375667   Root MSE        =     15152
+
+------------------------------------------------------------------------------
+        re78 |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       treat |  -15204.78   1154.614   -13.17   0.000    -17468.81   -12940.75
+       _cons |   21553.92   303.6413    70.98   0.000     20958.53    22149.32
+------------------------------------------------------------------------------
+
+. 
+. eststo obs_ctrl: regress re78 treat `ctrls'
+
+      Source |       SS           df       MS      Number of obs   =     2,675
+-------------+----------------------------------   F(10, 2664)     =    378.06
+       Model |  3.8334e+11        10  3.8334e+10   Prob > F        =    0.0000
+    Residual |  2.7012e+11     2,664   101396858   R-squared       =    0.5866
+-------------+----------------------------------   Adj R-squared   =    0.5851
+       Total |  6.5346e+11     2,674   244375667   Root MSE        =     10070
+
+------------------------------------------------------------------------------
+        re78 |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       treat |   795.0238   915.7914     0.87   0.385     -1000.71    2590.758
+         age |   112.9997   157.1011     0.72   0.472    -195.0528    421.0522
+       agesq |  -2.693103   2.133443    -1.26   0.207    -6.876475    1.490268
+   education |   579.6661    103.799     5.58   0.000     376.1313    783.2009
+       black |  -599.3584   495.6346    -1.21   0.227    -1571.226     372.509
+    hispanic |    2187.46   1092.337     2.00   0.045     45.54603    4329.373
+     married |   1142.815   591.2765     1.93   0.053     -16.5925    2302.222
+    nodegree |   555.9059   647.2914     0.86   0.391    -713.3386    1825.151
+        re74 |   .2766393    .027946     9.90   0.000     .2218413    .3314374
+        re75 |   .5671931    .027566    20.58   0.000     .5131401     .621246
+       _cons |   -3111.48   2903.437    -1.07   0.284    -8804.698    2581.738
+------------------------------------------------------------------------------
+
+. 
+. * The raw observational estimate is very different from the experiment
+. * Adding controls changes the estimate a lot, but it is still lower than the
+>  experimental estimate
+. 
+. *--------------------------------------------------------------
+. * Q10. Build ONE table with all four estimates and write it to
+. *      output/results.tex (esttab ... using "output/results.tex").
+. *      Your memo will \input this file -- do not retype the numbers.
+. *--------------------------------------------------------------
+. 
+. esttab exp_raw exp_ctrl obs_raw obs_ctrl using "output/results.tex", ///
+>     replace se keep(treat)
+(output written to output/results.tex)
+
+. 
+. *--------------------------------------------------------------
+. * Q11. The by-hand OVB decomposition, in the observational sample.
+. *      Short: re78 on treat. Long: add re75. Auxiliary: re75 on treat.
+. *      Show a1 = b1 + b2*d1. Which number is "where selection lives"?
+. *--------------------------------------------------------------
+. 
+. regress re78 treat
+
+      Source |       SS           df       MS      Number of obs   =     2,675
+-------------+----------------------------------   F(1, 2673)      =    173.41
+       Model |  3.9811e+10         1  3.9811e+10   Prob > F        =    0.0000
+    Residual |  6.1365e+11     2,673   229573190   R-squared       =    0.0609
+-------------+----------------------------------   Adj R-squared   =    0.0606
+       Total |  6.5346e+11     2,674   244375667   Root MSE        =     15152
+
+------------------------------------------------------------------------------
+        re78 |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       treat |  -15204.78   1154.614   -13.17   0.000    -17468.81   -12940.75
+       _cons |   21553.92   303.6413    70.98   0.000     20958.53    22149.32
+------------------------------------------------------------------------------
+
+. scalar a1 = _b[treat]
+
+. 
+. regress re78 treat re75
+
+      Source |       SS           df       MS      Number of obs   =     2,675
+-------------+----------------------------------   F(2, 2672)      =   1652.02
+       Model |  3.6129e+11         2  1.8064e+11   Prob > F        =    0.0000
+    Residual |  2.9217e+11     2,672   109346809   R-squared       =    0.5529
+-------------+----------------------------------   Adj R-squared   =    0.5525
+       Total |  6.5346e+11     2,674   244375667   Root MSE        =     10457
+
+------------------------------------------------------------------------------
+        re78 |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       treat |  -581.8334   841.2555    -0.69   0.489    -2231.411    1067.744
+        re75 |   .8341058   .0153834    54.22   0.000     .8039413    .8642703
+       _cons |   5653.081   360.4367    15.68   0.000     4946.317    6359.844
+------------------------------------------------------------------------------
+
+. scalar b1 = _b[treat]
+
+. scalar b2 = _b[re75]
+
+. 
+. regress re75 treat
+
+      Source |       SS           df       MS      Number of obs   =     2,675
+-------------+----------------------------------   F(1, 2673)      =    306.17
+       Model |  5.2927e+10         1  5.2927e+10   Prob > F        =    0.0000
+    Residual |  4.6207e+11     2,673   172864275   R-squared       =    0.1028
+-------------+----------------------------------   Adj R-squared   =    0.1024
+       Total |  5.1499e+11     2,674   192592703   Root MSE        =     13148
+
+------------------------------------------------------------------------------
+        re75 |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       treat |  -17531.28   1001.911   -17.50   0.000    -19495.88   -15566.68
+       _cons |   19063.34   263.4832    72.35   0.000     18546.69    19579.99
+------------------------------------------------------------------------------
+
+. scalar d1 = _b[treat]
+
+. 
+. display a1
+-15204.777
+
+. display b1 + b2*d1
+-15204.777
+
+. 
+. * d1 shows how different the groups were before training
+. * The training group earned about $17,531 less in 1975 than the PSID group
+. * Once re75 is added, the treatment estimate changes from about -15,205 to -
+> 582
+. * This shows why the raw comparison was misleading
+. 
+. *--------------------------------------------------------------
+. * Q12. One figure to output/estimates.png (and .pdf) showing the four
+. *      estimates against the experimental benchmark.
+. *--------------------------------------------------------------
+. 
+. estimates restore exp_raw
+(results exp_raw are active now)
+
+. local expraw = _b[treat]
+
+. 
+. estimates restore exp_ctrl
+(results exp_ctrl are active now)
+
+. local expctrl = _b[treat]
+
+. 
+. estimates restore obs_raw
+(results obs_raw are active now)
+
+. local obsraw = _b[treat]
+
+. 
+. estimates restore obs_ctrl
+(results obs_ctrl are active now)
+
+. local obsctrl = _b[treat]
+
+. 
+. clear
+
+. set obs 4
+number of observations (_N) was 0, now 4
+
+. 
+. generate model = _n
+
+. generate estimate = .
+(4 missing values generated)
+
+. 
+. replace estimate = `expraw' in 1
+(1 real change made)
+
+. replace estimate = `expctrl' in 2
+(1 real change made)
+
+. replace estimate = `obsraw' in 3
+(1 real change made)
+
+. replace estimate = `obsctrl' in 4
+(1 real change made)
+
+. 
+. twoway scatter estimate model, ///
+>     yline(`expraw') ///
+>     xlabel(1 "Exp raw" 2 "Exp controls" 3 "Obs raw" 4 "Obs controls", angle(
+> 45)) ///
+>     ytitle("Estimated effect") ///
+>     xtitle("")
+
+. 
+. graph export "output/estimates.png", replace
+(file output/estimates.png written in PNG format)
+
+. graph export "output/estimates.pdf", replace
+(file output/estimates.pdf written in PDF format)
+
+. 
+. *--------------------------------------------------------------
+. * Q13. Diagnose the consultant's report
+. *--------------------------------------------------------------
+. 
+. * I would not use the $795 estimate as the true effect of training
+. * The experimental estimate is about $1,794 without controls and about $1,67
+> 6 with controls
+. * These two estimates are close, which makes sense because treatment was ran
+> domly assigned
+. * The observational estimates are very different
+. * The raw observational estimate is about -$15,205, but it changes to about 
+> $795 after adding controls
+. * This large change suggests that the trainees and the PSID group were very 
+> different before training
+. * Q11 also shows this using earnings from 1975
+. * The training group earned about $17,531 less than the PSID group in 1975
+. * After re75 is added, the treatment estimate changes from about -$15,205 to
+>  -$582
+. * This shows that the raw estimate was heavily affected by differences betwe
+> en the two groups
+. * The main problem with the consultant's conclusion is that adding controls 
+> does not make the groups random
+. * Controls can adjust for differences we can measure, but there may still be
+>  other differences that are not in the data
+. * For that reason, I would not treat the $795 estimate as the true effect of
+>  the program
+. * I would tell the Ministry to rely more on the experimental results
+. * The experiment suggests an effect of around $1,700 and gives a more reliab
+> le comparison because treatment was random
+. * I would not recommend scaling back the program based only on the $795 obse
+> rvational estimate
+. 
+. di as result "03_analysis.do complete."
+03_analysis.do complete.
+
+. 
+end of do-file
+
+. 
+. log close
+      name:  <unnamed>
+       log:  \\tsclient\Drives\eco372-ps1\output/ps1_log.txt
+  log type:  text
+ closed on:   6 Oct 2026, 03:53:49
+------------------------------------------------------------------------------

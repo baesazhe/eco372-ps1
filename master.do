@@ -8,9 +8,14 @@
 *   2. Type:  do master.do
 * Everything in output/ is regenerated from scratch.
 *==============================================================
-version 17
+version 15.1
 clear all
 set more off
+
+capture mkdir "output"
+
+confirm file "data/raw/nsw_experimental.csv"
+confirm file "data/raw/psid_comparison_raw.csv"
 
 capture log close
 log using "output/ps1_log.txt", replace text
@@ -20,4 +25,5 @@ do "code/02_simulation.do"     // Part 1: simulation
 do "code/03_analysis.do"       // Part 2: experiment vs OLS
 
 log close
+
 di as result "== master.do finished: see output/ =="

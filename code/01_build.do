@@ -12,7 +12,7 @@
 *==============================================================
 clear all
 set more off
-version 17
+version 15.1
 
 *--------------------------------------------------------------
 * 1. Experimental sample (already tidy)
@@ -35,8 +35,26 @@ save `experimental'
 import delimited "data/raw/psid_comparison_raw.csv", clear varnames(1) ///
     case(preserve) stringcols(_all)
 
-* TODO: your cleaning steps here
+drop region_note
 
+replace subjid = lower(strtrim(subjid))
+
+rename subjid id
+rename ed education
+rename blk black
+rename hisp hispanic
+rename marr married
+rename nodeg nodegree
+rename earn74 re74
+rename earn75 re75
+rename earn78 re78
+
+destring age education black hispanic married nodegree, replace
+destring re74 re75 re78, replace ignore("$,")
+
+duplicates drop
+
+generate treat = 0
 
 tempfile psid
 save `psid'
@@ -44,15 +62,34 @@ save `psid'
 *--------------------------------------------------------------
 * 3. Build the two analysis files
 *--------------------------------------------------------------
-* TODO: experiment = the full experimental file -> data/nsw_experiment.dta
-* TODO: observational = trained from the experiment, appended with PSID
-*        -> data/nsw_observational.dta
+
+use `experimental', clear
+save "data/nsw_experiment.dta", replace
+
+keep if treat==1
+append using `psid'
+save "data/nsw_observational.dta", replace
 
 *--------------------------------------------------------------
 * 4. Derived variables (do this for BOTH files)
 *    u74 = 1 if 1974 earnings are zero; u75 likewise; agesq = age^2
 *--------------------------------------------------------------
-* TODO
 
+use "data/nsw_experiment.dta", clear
+
+generate u74 = (re74==0)
+generate u75 = (re75==0)
+generate agesq = age^2
+
+save "data/nsw_experiment.dta", replace
+
+
+use "data/nsw_observational.dta", clear
+
+generate u74 = (re74==0)
+generate u75 = (re75==0)
+generate agesq = age^2
+
+save "data/nsw_observational.dta", replace
 
 di as result "01_build.do complete."
